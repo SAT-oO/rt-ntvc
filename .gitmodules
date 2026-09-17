@@ -1,3 +1,3 @@
-[submodule "libs"]
+[submodule "commavq_compressor"]
 	path = commavq_compressor
 	url = https://github.com/SAT-oO/commavq_compressor.git
