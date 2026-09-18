@@ -41,9 +41,8 @@ class PixelMetrics:
 
 
 def token_bpp(num_bits: float, num_symbols: int = SYMBOLS_PER_CLIP) -> float:
-    return num_bits / (num_symbols * BIT_DEPTH / BIT_DEPTH)  # bits per 10-bit symbol slot
-    # Actually bpp = bits / (pixels * bit_depth) for pixels; for tokens:
-    # bits per token vs 10-bit raw = num_bits / (num_symbols * 10)
+    """Bits per token vs packed 10-bit symbols: num_bits / (num_symbols * 10)."""
+    return num_bits / (num_symbols * BIT_DEPTH)
 
 
 def bits_per_token(num_bits: float, num_symbols: int = SYMBOLS_PER_CLIP) -> float:
@@ -89,8 +88,11 @@ def psnr_ssim(
         from torchmetrics.functional import peak_signal_noise_ratio, structural_similarity_index_measure
         import torch
 
-        t = torch.from_numpy(pred).float()
-        g = torch.from_numpy(target).float()
+        t = torch.from_numpy(np.ascontiguousarray(pred)).float()
+        g = torch.from_numpy(np.ascontiguousarray(target)).float()
+        if t.ndim == 4 and t.shape[-1] == 3:
+            t = t.permute(0, 3, 1, 2)
+            g = g.permute(0, 3, 1, 2)
         if t.max() > 1.5:
             t = t / 255.0
             g = g / 255.0
@@ -98,9 +100,27 @@ def psnr_ssim(
         ssim = float(structural_similarity_index_measure(t, g, data_range=1.0))
         return psnr, ssim
     except ImportError:
-        mse = np.mean((pred.astype(np.float64) - target.astype(np.float64)) ** 2)
-        psnr = 10.0 * np.log10(255.0**2 / max(mse, 1e-12)) if pred.dtype == np.uint8 else -10 * np.log10(max(mse, 1e-12))
-        return float(psnr), 0.0
+        pred_f = pred.astype(np.float64)
+        tgt_f = target.astype(np.float64)
+        if pred_f.max() <= 1.5:
+            pred_f = pred_f * 255.0
+            tgt_f = tgt_f * 255.0
+        mse = np.mean((pred_f - tgt_f) ** 2)
+        psnr = float(10.0 * np.log10(255.0**2 / max(mse, 1e-12)))
+        # ponytail: windowed SSIM, 8x8 blocks, no Gaussian; upgrade = torchmetrics
+        h, w = pred_f.shape[1], pred_f.shape[2]
+        ssim_acc = []
+        for y0 in range(0, h - 7, 8):
+            for x0 in range(0, w - 7, 8):
+                a = pred_f[:, y0 : y0 + 8, x0 : x0 + 8]
+                b = tgt_f[:, y0 : y0 + 8, x0 : x0 + 8]
+                ma, mb = a.mean(), b.mean()
+                va, vb = a.var(), b.var()
+                cov = ((a - ma) * (b - mb)).mean()
+                c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+                ssim_acc.append(((2 * ma * mb + c1) * (2 * cov + c2)) / ((ma**2 + mb**2 + c1) * (va + vb + c2)))
+        ssim = float(np.mean(ssim_acc)) if ssim_acc else 0.0
+        return psnr, ssim
 
 
 def lpips_distance(pred: np.ndarray, target: np.ndarray) -> float:

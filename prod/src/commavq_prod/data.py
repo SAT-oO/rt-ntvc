@@ -12,7 +12,7 @@ from commavq_prod.constants import FRAMES, S
 from commavq_prod.types import TokenArray
 
 HF_REPO = "commaai/commavq"
-HF_DATA_GLOB = "data/data-*.tar.gz"
+HF_DATA_GLOB = "data-*.tar.gz"
 
 
 def synthetic_batch(
@@ -50,6 +50,27 @@ def iter_clips_from_tar(
                 return
 
 
+CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
+HELDOUT_NPY = CACHE_DIR / "heldout_tokens.npy"
+
+
+def load_heldout_tokens(n_frames: int) -> tuple[np.ndarray, bool]:
+    """(n_frames, S) int32 and whether the clip is real dashcam tokens."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    if HELDOUT_NPY.exists():
+        tok = np.load(HELDOUT_NPY)
+        return tok[:n_frames].astype(np.int32), True
+    try:
+        tok, _ = next(iter_clips_hf(max_clips=1))
+        tok = np.asarray(tok, dtype=np.int16)
+        if tok.ndim == 3:
+            tok = tok.reshape(tok.shape[0], -1)
+        np.save(HELDOUT_NPY, tok)
+        return tok[:n_frames].astype(np.int32), True
+    except Exception:
+        return synthetic_batch(1, n_frames, seed=0)[0].astype(np.int32), False
+
+
 def iter_clips_hf(
     max_clips: Optional[int] = None,
     split_glob: Optional[str] = None,
@@ -61,7 +82,9 @@ def iter_clips_hf(
     ds = load_dataset(HF_REPO, data_files=pattern, split="train", streaming=True)
     count = 0
     for row in ds:
-        tokens = np.asarray(row["tokens"], dtype=np.int16)
+        tokens = np.asarray(row.get("token.npy", row.get("tokens")), dtype=np.int16)
+        if tokens.ndim == 3:
+            tokens = tokens.reshape(tokens.shape[0], -1)
         name = str(row.get("file_name", row.get("__key__", f"clip_{count}")))
         yield tokens, name
         count += 1

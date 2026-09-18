@@ -18,6 +18,14 @@ impl RansEncoder {
         }
     }
 
+    pub fn from_vec(output: Vec<u8>) -> Self {
+        Self { state: L, output }
+    }
+
+    pub fn reserve(&mut self, n: usize) {
+        self.output.reserve(n);
+    }
+
     #[inline]
     pub fn encode(&mut self, freq: u32, cum_low: u32) {
         assert!(freq > 0 && freq <= M);
@@ -49,15 +57,23 @@ pub struct RansDecoder {
 
 impl RansDecoder {
     pub fn new(data: &[u8]) -> Self {
+        Self::from_vec(data.to_vec())
+    }
+
+    pub fn from_vec(data: Vec<u8>) -> Self {
         let state = (data[0] as u32)
             | ((data[1] as u32) << 8)
             | ((data[2] as u32) << 16)
             | ((data[3] as u32) << 24);
         Self {
             state,
-            data: data.to_vec(),
+            data,
             pos: 4,
         }
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.data
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -132,31 +148,20 @@ pub fn probs_to_cdf(probs: &[f32]) -> Vec<u32> {
     cdf
 }
 
-fn build_cdf_table(probs_flat: &[f32], vocab: usize, n: usize) -> Vec<u32> {
-    let stride = vocab + 1;
-    let mut tables = vec![0u32; n * stride];
-    let mut row = vec![0f32; vocab];
-    for i in 0..n {
-        let off = i * vocab;
-        normalize_row(&probs_flat[off..off + vocab], &mut row);
-        let base = i * stride;
-        probs_to_cdf_into(&row, &mut tables[base..base + stride]);
-    }
-    tables
-}
-
 pub fn encode_symbols_with_probs_i32(
     symbols: &[i32],
     probs_flat: &[f32],
     vocab: usize,
 ) -> Vec<u8> {
     let n = symbols.len();
-    let stride = vocab + 1;
-    let tables = build_cdf_table(probs_flat, vocab, n);
     let mut enc = RansEncoder::new();
+    enc.output.reserve(n * 2 + 64);
+    let mut cdf = vec![0u32; vocab + 1];
+    let mut row = vec![0f32; vocab];
     for i in (0..n).rev() {
-        let base = i * stride;
-        let cdf = &tables[base..base + stride];
+        let off = i * vocab;
+        normalize_row(&probs_flat[off..off + vocab], &mut row);
+        probs_to_cdf_into(&row, &mut cdf);
         let s = symbols[i] as usize;
         let freq = cdf[s + 1] - cdf[s];
         enc.encode(freq, cdf[s]);
@@ -186,18 +191,25 @@ pub fn encode_symbols_with_probs(
 
 pub fn decode_symbols_with_probs(data: &[u8], probs_flat: &[f32], vocab: usize) -> Vec<u32> {
     let n = probs_flat.len() / vocab;
-    let stride = vocab + 1;
-    let tables = build_cdf_table(probs_flat, vocab, n);
     let mut dec = RansDecoder::new(data);
     let mut out = Vec::with_capacity(n);
+    let mut cdf = vec![0u32; vocab + 1];
+    let mut row = vec![0f32; vocab];
     for i in 0..n {
-        let base = i * stride;
-        out.push(dec.decode(&tables[base..base + stride]) as u32);
+        let off = i * vocab;
+        normalize_row(&probs_flat[off..off + vocab], &mut row);
+        probs_to_cdf_into(&row, &mut cdf);
+        out.push(dec.decode(&cdf) as u32);
     }
     out
 }
 
 const MIN_PROB: f32 = 1e-6;
+
+#[inline]
+pub fn rans_theoretical_bits(freq: u32) -> f32 {
+    -(freq as f32 / M as f32).log2()
+}
 
 #[inline]
 fn round7(x: f32) -> f32 {

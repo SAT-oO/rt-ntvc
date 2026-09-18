@@ -1,0 +1,12 @@
+{
+  "seq_len": 1024,
+  "d_model": 256,
+  "layers": 6,
+  "gflop_per_predicted_frame": 14.56,
+  "gflops_for_20fps": 291.3,
+  "weights_mb_f32": 17.93,
+  "weights_mb_f16": 8.97,
+  "one_shot_probs_mb": 629.1,
+  "attention_act_mb": 16.8,
+  "fps": 20
+}

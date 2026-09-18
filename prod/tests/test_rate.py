@@ -6,12 +6,11 @@ from commavq_prod.constants import FRAMES, S, VOCAB
 from commavq_prod.rate import assign_adaptive_tau, nll_bits, probs_with_tau
 
 
-def test_nll_finite() -> None:
-    rng = np.random.default_rng(0)
-    tokens = rng.integers(0, VOCAB, size=(8, S), dtype=np.int16)
+def test_nll_uniform_is_10_bits() -> None:
+    tokens = np.zeros((8, S), dtype=np.int16)
     probs = np.full((8, S, VOCAB), 1.0 / VOCAB, dtype=np.float32)
     bits = nll_bits(tokens, probs)
-    assert bits > 0
+    assert abs(bits - 8 * S * 10.0) < 1e-3
 
 
 def test_adaptive_tau_shape() -> None:

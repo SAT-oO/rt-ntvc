@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from commavq_prod.codec import decode_clip, encode_clip, load_codec
-from commavq_prod.constants import BIT_DEPTH, FRAMES, S, SYMBOLS_PER_CLIP
+from commavq_prod.constants import BIT_DEPTH, FRAMES, H, S, SYMBOLS_PER_CLIP, W
 from commavq_prod.data import iter_clips_hf, iter_clips_from_tar, synthetic_batch
 from commavq_prod.types import TokenArray
 from commavq_prod.eval.metrics import (
@@ -97,7 +97,42 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "tokens":
         eval_tokens(args.splits, args.max_clips, args.device)
     elif args.cmd == "pixels":
-        print("Pixel eval requires comma VQ pipeline + ffmpeg; run with eval extras.")
+        from commavq_prod.eval.classical import encode_video, decode_video
+        from commavq_prod.eval.metrics import psnr_ssim
+        from commavq_prod.eval.vqvae import rgb_to_tokens, tokens_to_rgb
+        from commavq_prod.codec import encode_clip_native, decode_clip_native, load_engine
+        import tempfile
+
+        load_engine()
+        n = args.max_frames
+        if args.video and args.video.exists():
+            import subprocess
+            with tempfile.TemporaryDirectory() as td:
+                raw = Path(td) / "in.raw"
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(args.video), "-vf", f"scale={W}:{H}",
+                     "-frames:v", str(n), "-f", "rawvideo", "-pix_fmt", "rgb24", str(raw)],
+                    check=True, capture_output=True,
+                )
+                rgb = np.fromfile(raw, dtype=np.uint8)
+                nf = rgb.size // (H * W * 3)
+                rgb = rgb[: nf * H * W * 3].reshape(nf, H, W, 3)
+        else:
+            print("no --video; run benches/bench_rd.py for structured RGB RD")
+            return
+        device = "cpu"
+        try:
+            import torch
+            if torch.backends.mps.is_available():
+                device = "mps"
+        except Exception:
+            pass
+        tokens = rgb_to_tokens(rgb, device=device).astype(np.int32)
+        blob = encode_clip_native(tokens, adaptive=True)
+        rec = tokens_to_rgb(decode_clip_native(blob), device=device)
+        p, s = psnr_ssim(rec[: rgb.shape[0]], rgb[: rec.shape[0]])
+        bpp = len(blob) * 8 / (rgb.shape[0] * H * W)
+        print(f"neural bpp={bpp:.4f} psnr={p:.2f} ssim={s:.4f} bytes={len(blob)}")
 
 
 if __name__ == "__main__":

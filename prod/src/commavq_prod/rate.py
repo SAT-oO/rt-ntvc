@@ -33,10 +33,9 @@ def apply_temperature(probs: FloatArray, tau: float) -> FloatArray:
 
 def nll_bits(tokens: TokenArray, probs: FloatArray) -> float:
     """Cross-entropy in bits for tokens (T,S) and probs (T,S,V)."""
-    t, s = tokens.shape
     flat_tok = tokens.reshape(-1).astype(np.int64)
     flat_p = probs.reshape(-1, probs.shape[-1])
-    p = np.clip(flat_p[:, flat_tok], 1e-12, 1.0)
+    p = np.clip(flat_p[np.arange(flat_tok.shape[0]), flat_tok], 1e-12, 1.0)
     return float(-np.log2(p).sum())
 
 

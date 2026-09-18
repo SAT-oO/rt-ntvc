@@ -5,12 +5,14 @@ edition = "2021"
 
 [lib]
 name = "commavq_rans"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib", "staticlib"]
 
 [dependencies]
 pyo3 = { version = "0.22", features = ["extension-module"] }
 numpy = "0.22"
 ndarray = "0.16"
+matrixmultiply = "0.3"
+rayon = "1.10"
 
 [profile.release]
 opt-level = 3

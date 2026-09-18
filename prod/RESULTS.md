@@ -32,3 +32,14 @@ Command: `python benches/bench_e2e_decode.py`
 | mean NLL ratio | 1.0000 | target [0.99, 1.01] |
 
 Command: `python benches/bench_adaptive_rate.py` (BENCH_FRAMES=120)
+
+## Gates R1–R4 (16 frames, real=True)
+
+| gate | pass | metric |
+|------|------|--------|
+| R1 zero-alloc engine + C ABI | True | hot_allocs=0 |
+| R2 e2e decode >= 1.5x | True | 4.03x cpu=0.551s native=0.137s |
+| R3 adaptive bits <= 0.88 | True | ratio=0.2122 lossless=True |
+| R4 PSNR/SSIM/P99 vs classical | True | {"neural_bpp": 0.023284912109375, "neural_psnr": 17.181772154499196, "decode_p99_ms": 68.07108704000711} |
+
+Command: `python benches/bench_gates.py`
